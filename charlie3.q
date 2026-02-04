@@ -187,6 +187,8 @@ x_matrix: enlist exec price from median_data where (bar_time=bar_t) & (sym=s) & 
 //add column
 x_matrix: x_matrix, enlist exec moving_median from median_data where (bar_time=bar_t) & (sym=s) & (date in prev_5)
 
-next_trading_day: $[count nd:tradingDays where tradingDays>input_date; first nd; 0Nd]
+input_date: 2023.03.01
+next_trading_day: {[d] nd: tradingDays where tradingDays>d; $[count nd; first nd; 0Nd]}
 ntd: next_trading_day[input_date]
-target_y: exec return from ret_table where (bar_time=bar_t) & (sym=s) & (date :next_trading_day)
+
+target_y: select return from ret_table where (bar_time=bar_t) & (sym=s) & (date=ntd)
