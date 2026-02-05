@@ -20,7 +20,7 @@ barTimes: 09:30:00 + 00:01 * til marketMinutes;
 syms: `IBM`AAPL`TSLA; 
 basePrices: 185.0 185.0 250.0; 
 
-/ --- SECTION 2: Step 1 - Simulation Logic ---
+/ --- SECTION 2: Step 1 - Simulation Logic ----------------------------------------------------------------
 show "Step 1: Running Price Simulation...";
 simulate_day_one_sym: {[dt; sym; startP]
     n: marketMinutes;
@@ -34,6 +34,7 @@ construct_table_one_day: {[dt; openP]
     `date`bar_time xasc t
  };
 
+//If dbPath doesn't exist then make it.
 if[()~key dbPath; .[system;("mkdir \"",dbPathStr,"\"");{}]];
 
 openP: basePrices; 
@@ -47,8 +48,8 @@ while[i < count tradingDays;
     if[0 = i mod 50; show "Partition saved: ", string dt];
     i+: 1
  ];
-
-/ --- SECTION 3: Step 2 - Returns Calculation ---
+/ __________________________________________________________________________________________________________
+/ --- SECTION 3: Step 2 - Returns Calculation --- Calculates and saves ret_table
 show "Step 2: Calculating Returns...";
 \l /Users/zacharydugan/q/simulated_data/db
 p: `date`sym`bar_time xasc select from prices_table where date within (startDate; endDate); 
@@ -58,36 +59,60 @@ returns_table: update return: (price - prev price) % prev price by date, sym fro
     ret_table:: select date, bar_time, sym, return from returns_table where date = dt;
     .Q.dpft[dbPath; dt; `sym; `ret_table]
  } each tradingDays;
+/ __________________________________________________________________________________________________________
 
-/ --- SECTION 4: Step 3 - Moving Medians ---
+
+/ __________________________________________________________________________________________________________
+/ --- SECTION 4: Step 3 - Moving Medians --- Creates and saves moving_median_table
 show "Step 3: Calculating Moving Medians...";
 \l /Users/zacharydugan/q/simulated_data/db
 
 / Load prices and calculate moving median across time (window 7)
 / We group by sym and bar_time to look at the median of that specific time-slice across dates
-median_data: select from prices_table;
-median_data: update moving_median: return_moving_window_op[7; med; price] by sym, bar_time from median_data;
+// median_data: select from prices_table;
+median_data: select from ret_table;
+median_data: update moving_median: return_moving_window_op[7; med; return] by sym, bar_time from median_data;
 
 { [dt]
     moving_median_table:: select date, bar_time, sym, moving_median from median_data where date = dt;
     .Q.dpft[dbPath; dt; `sym; `moving_median_table]
  } each tradingDays;
+/ __________________________________________________________________________________________________________
 
-/ --- SECTION 5: Step 4 - Exponential Medians (EMA) ---
+
+/ __________________________________________________________________________________________________________
+/ --- SECTION 5: Step 4 - Exponential Medians (EMA) --- Saves to exp_median_table
 show "Step 4: Applying EMA to Medians...";
 \l /Users/zacharydugan/q/simulated_data/db
 
 / Use the moving_median_table as input for the EMA
-ema_data: select from moving_median_table;
+ema_data: select from moving_median_table where date > 2023.01.10;  / 7 day moving median
 / Apply EMA (alpha 0.333) to the moving median values, ignoring the first 6 nulls
-ema_data: update exp_median: (6#0n), ema[0.333; 6_moving_median] by sym, bar_time from ema_data;
+/ ema_data: update exp_median: (6#0n), ema[0.333; 6_moving_median] by sym, bar_time from ema_data;
+return_moving_median_array:{ [sym, bar_time]
+    / moving_median_array: exec moving_median from ema_data where (sym=sym) and (bar_time=bar_time);
+    moving_median_array: select date, sym, bar_time, moving_median from ema_data where (sym=sym) and (bar_time=bar_time);
+}
+ema_data: update exp_median: (6#0n), ema[0.333; moving_median] by sym, bar_time from ema_data;
+/ ema_data: update exp_median: (6#0n), ema[0.333; moving_median] from ema_data where (sym=sym) and (bar_time=bar_time);
+/ ema_data: update exp_median: ema[0.333; moving_median] from ema_data where (sym=sym) and (bar_time=bar_time)
+
+show "Showing ema results"
+select ema[0.333; 6_moving_median] by sym, bar_time from ema_data;
+select ema[0.333; 10_moving_median] by sym, bar_time from ema_data;
+show 20#(ema_data`exp_median)
+show -20#(ema_data`exp_median)
+show 20#(ema_data)
+show -20#(ema_data)
 
 { [dt]
     exp_median_table:: select date, bar_time, sym, moving_median, exp_median from ema_data where date = dt;
     .Q.dpft[dbPath; dt; `sym; `exp_median_table]
  } each tradingDays;
+/ __________________________________________________________________________________________________________
 
 
+/ __________________________________________________________________________________________________________
  / --- SECTION 5: Step 4 - Exponential Medians (Nudge Logic) ---
 show "Step 5: Applying Exponential Nudge Median...";
 \l /Users/zacharydugan/q/simulated_data/db
@@ -114,18 +139,22 @@ median_results: update exp_med: exp_step[alpha;;]\[first price; price] by date, 
 / Show last 21 rows for verification
 show "Last 21 rows of results:";
 show -21#median_results;
-
-/ Calculate and show correlation
-last_21: -21#median_results;
-result: exec price cor exp_med from last_21;
-show "Correlation of last 21 rows:";
-show result;
-
 / Persist the final analytics table
 { [dt]
-    exp_median_table:: select date, bar_time, sym, price, exp_med from median_results where date = dt;
-    .Q.dpft[dbPath; dt; `sym; `exp_median_table]
+    exp_median_nudge_table:: select date, bar_time, sym, price, exp_med from median_results where date = dt;
+    .Q.dpft[dbPath; dt; `sym; `exp_median_nudge_table]
  } each tradingDays;
+/ __________________________________________________________________________________________________________
+
+/ __________________________________________________________________________________________________________
+/ Calculate and show correlation
+
+\l /Users/zacharydugan/q/simulated_data/db
+
+/ last_21: -21#median_results;
+/ result: exec price cor exp_med from last_21;
+/ show "Correlation of last 21 rows:";
+/ show result;
 
 / --- SECTION 6: Step 5 - Alternative Exponential Medians (EMA) ---
 
@@ -136,12 +165,14 @@ date_filter: startDate + 10;
 
 / --- 2. Extract columns as flat numeric lists using 'exec' ---
 / We pull both price and exp_med from the same table to ensure they align
-p: exec price from median_results where sym=sym_filter, date > date_filter;
-m: exec exp_med from median_results where sym=sym_filter, date > date_filter;
+/ p: exec exp_med from exp_median_table where sym=sym_filter, date > date_filter;
+p: select exp_median from exp_median_table where sym=sym_filter, date > date_filter;
+p2: exec exp_median from p
+m: exec exp_med from exp_median_nudge_table where sym=sym_filter, date > date_filter;
 
 / --- 3. Run the correlation ---
 / This will return a single float between -1 and 1
-result: p cor m;
+result: p2 cor m;
 
 show "Correlation for ", (string sym_filter), " since ", (string date_filter), ":";
 show result;
@@ -163,32 +194,3 @@ show "Final Correlation Report for ", string latest_dt;
 show final_report;
 
 show "--- Pipeline Completed Successfully ---";
-
-
-// Regression____________________________________________________________________________________________
-
-/ Create Design matrix
-
-
- // x_matrix: prices from last 5 days at that bar for that sybol, same thing for exp_med
-
-// startDate: 2023.01.02;
-// endDate: 2025.01.02;
-// allDays: startDate + til 1 + endDate - startDate;
-// tradingDays: allDays where (mod[allDays; 7]) < 5; 
-
-bar_t: 10:30:00
-s: `AAPL
-input_date: 2023.03.01
-prev_5: -5#tradingDays where tradingDays<input_date
-select price from median_data where (bar_time=bar_t) & (sym=s) & (date in prev_5)
-
-x_matrix: enlist exec price from median_data where (bar_time=bar_t) & (sym=s) & (date in prev_5)
-//add column
-x_matrix: x_matrix, enlist exec moving_median from median_data where (bar_time=bar_t) & (sym=s) & (date in prev_5)
-
-input_date: 2023.03.01
-next_trading_day: {[d] nd: tradingDays where tradingDays>d; $[count nd; first nd; 0Nd]}
-ntd: next_trading_day[input_date]
-
-target_y: select return from ret_table where (bar_time=bar_t) & (sym=s) & (date=ntd)
