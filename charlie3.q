@@ -86,14 +86,33 @@ show "Step 4: Applying EMA to Medians...";
 \l /Users/zacharydugan/q/simulated_data/db
 
 / Use the moving_median_table as input for the EMA
+// ema_data: select from moving_median_table;
+// ema_data: update exp_median: (6#0n), ema[0.333; 6_moving_median] by sym, bar_time from ema_data;
+
 ema_data: select from moving_median_table where date > 2023.01.10;  / 7 day moving median
 / Apply EMA (alpha 0.333) to the moving median values, ignoring the first 6 nulls
-/ ema_data: update exp_median: (6#0n), ema[0.333; 6_moving_median] by sym, bar_time from ema_data;
-return_moving_median_array:{ [sym, bar_time]
-    / moving_median_array: exec moving_median from ema_data where (sym=sym) and (bar_time=bar_time);
-    moving_median_array: select date, sym, bar_time, moving_median from ema_data where (sym=sym) and (bar_time=bar_time);
+
+
+return_moving_median_array:{ [input_sym, input_bar_time]
+    / Just for checking
+    / moving_median_array: select date, sym, bar_time, moving_median from ema_data where (sym=`AAPL) and (bar_time=09:31:00);
+    / moving_median_array: exec moving_median from ema_data where (sym=`AAPL) and (bar_time=09:31:00)
+    moving_median_array: exec moving_median from ema_data where (sym=input_sym) and (bar_time=input_bar_time)
 }
+
+moving_median_array: return_moving_median_array[ `AAPL, 09:31:00]
+input_array: ema[0.333; moving_median_array]
+
+cond1: where (  (ema_data`bar_time)=indiv_time)  ;
+cond2: where (  ema_data`sym)=indiv_sym;
+inds: cond1 inter cond2;
+
+amended_col: @[ema_data`exp_median; inds; :; "f"$input_array];
+ema_data:: update exp_median: amended_col from exp_median;
+
+
 ema_data: update exp_median: (6#0n), ema[0.333; moving_median] by sym, bar_time from ema_data;
+/ ema_data: update exp_median: (6#0n), ema[0.333; moving_median] by sym, bar_time from ema_data;
 / ema_data: update exp_median: (6#0n), ema[0.333; moving_median] from ema_data where (sym=sym) and (bar_time=bar_time);
 / ema_data: update exp_median: ema[0.333; moving_median] from ema_data where (sym=sym) and (bar_time=bar_time)
 
