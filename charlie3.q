@@ -91,38 +91,40 @@ show "Step 4: Applying EMA to Medians...";
 
 ema_data: select from moving_median_table where date > 2023.01.10;  / 7 day moving median
 / Apply EMA (alpha 0.333) to the moving median values, ignoring the first 6 nulls
+ema_data: update exp_median: 0n from ema_data    / float null
+dbg:1b
+ema_moving_median:{[input_sym; input_bar_time]
+    moving_median_array: exec moving_median from ema_data where (sym=input_sym) and (bar_time=input_bar_time);
+    input_array: ema[0.333; moving_median_array];
+    cond1: where (ema_data`bar_time)=input_bar_time;
+    cond2: where (ema_data`sym)=input_sym;
+    inds: cond1 inter cond2;
+    if[(count inds) <> (count input_array); '"ema_moving_median: length mismatch (inds vs input_array)"];
+    amended_col: @[ema_data`exp_median; inds; :; "f"$input_array];
+    ema_data:: update exp_median: amended_col from ema_data;
+    moving_median_array
+    }
 
+pairs: distinct flip `sym`bar_time!(ema_data`sym; ema_data`bar_time);
+n: count pairs;
+run_one: {[idx]
+  sym_idx: pairs[`sym][idx];
+  time_idx: pairs[`bar_time][idx];
+  ema_moving_median[sym_idx; time_idx]
+ };
+run_one each til n
 
-return_moving_median_array:{ [input_sym, input_bar_time]
-    / Just for checking
-    / moving_median_array: select date, sym, bar_time, moving_median from ema_data where (sym=`AAPL) and (bar_time=09:31:00);
-    / moving_median_array: exec moving_median from ema_data where (sym=`AAPL) and (bar_time=09:31:00)
-    moving_median_array: exec moving_median from ema_data where (sym=input_sym) and (bar_time=input_bar_time)
-}
+/ ema_data: update exp_median: (6#0n), ema[0.333; moving_median] by sym, bar_time from ema_data;
 
-moving_median_array: return_moving_median_array[ `AAPL, 09:31:00]
-input_array: ema[0.333; moving_median_array]
-
-cond1: where (  (ema_data`bar_time)=indiv_time)  ;
-cond2: where (  ema_data`sym)=indiv_sym;
-inds: cond1 inter cond2;
-
-amended_col: @[ema_data`exp_median; inds; :; "f"$input_array];
-ema_data:: update exp_median: amended_col from exp_median;
-
-
-ema_data: update exp_median: (6#0n), ema[0.333; moving_median] by sym, bar_time from ema_data;
 / ema_data: update exp_median: (6#0n), ema[0.333; moving_median] by sym, bar_time from ema_data;
 / ema_data: update exp_median: (6#0n), ema[0.333; moving_median] from ema_data where (sym=sym) and (bar_time=bar_time);
 / ema_data: update exp_median: ema[0.333; moving_median] from ema_data where (sym=sym) and (bar_time=bar_time)
 
 show "Showing ema results"
-select ema[0.333; 6_moving_median] by sym, bar_time from ema_data;
-select ema[0.333; 10_moving_median] by sym, bar_time from ema_data;
-show 20#(ema_data`exp_median)
-show -20#(ema_data`exp_median)
 show 20#(ema_data)
 show -20#(ema_data)
+// show "stopping here"
+// \
 
 { [dt]
     exp_median_table:: select date, bar_time, sym, moving_median, exp_median from ema_data where date = dt;
@@ -149,11 +151,17 @@ exp_step: {  [a; m; p]
     m]  };
 
 / Load temporary table for calculation
-temp_table: select date, sym, bar_time, price from prices_table;
-
+/ temp_table: select date, sym, bar_time, price from prices_table;
 / Calculate Exponential Median using scan iterator (\)
 / It nudges the median toward the price based on alpha
-median_results: update exp_med: exp_step[alpha;;]\[first price; price] by date, sym from temp_table;
+/ median_results: update exp_med: exp_step[alpha;;]\[first price; price] by date, sym from temp_table;
+
+/ Load temporary table for calculation
+temp_table: select date, sym, bar_time, return from ret_table;
+/ Calculate Exponential Median using scan iterator (\)
+/ It nudges the median toward the price based on alpha
+median_results: update exp_med: exp_step[alpha;;]\[first return; return] by date, sym from temp_table;
+
 
 / Show last 21 rows for verification
 show "Last 21 rows of results:";
@@ -185,31 +193,33 @@ date_filter: startDate + 10;
 / --- 2. Extract columns as flat numeric lists using 'exec' ---
 / We pull both price and exp_med from the same table to ensure they align
 / p: exec exp_med from exp_median_table where sym=sym_filter, date > date_filter;
-p: select exp_median from exp_median_table where sym=sym_filter, date > date_filter;
-p2: exec exp_median from p
-m: exec exp_med from exp_median_nudge_table where sym=sym_filter, date > date_filter;
+/ p: exec exp_median from exp_median_table where sym=sym_filter, date > date_filter;
+// p: select exp_median from exp_median_table where sym=sym_filter, date > date_filter;
+// p2: exec exp_median from p
+// m: select exp_med from exp_median_nudge_table where (sym=sym_filter), (date>date_filter);
+// m2: exec exp_med from m
 
-/ --- 3. Run the correlation ---
-/ This will return a single float between -1 and 1
-result: p2 cor m;
+// / --- 3. Run the correlation ---
+// / This will return a single float between -1 and 1
+// result: p2 cor m2;
 
-show "Correlation for ", (string sym_filter), " since ", (string date_filter), ":";
-show result;
+// show "Correlation for ", (string sym_filter), " since ", (string date_filter), ":";
+// show result;
 
-// / --- SECTION 6: Final Correlation Analysis ---
-show "Step 5: Generating Correlation Report...";
+// // / --- SECTION 6: Final Correlation Analysis ---
+// show "Step 5: Generating Correlation Report...";
 
-/ Calculate for all symbols in the last 21 minutes of the latest date
-latest_dt: last tradingDays;
-latest_data: select from exp_median_table where date = latest_dt;
+// / Calculate for all symbols in the last 21 minutes of the latest date
+// latest_dt: last tradingDays;
+// latest_data: select from exp_median_table where date = latest_dt;
 
-/ Generate a table showing correlation for all symbols
-final_report: select 
-    last_21_cor: (-21#price) cor (-21#exp_med),
-    full_day_cor: price cor exp_med 
-    by sym from latest_data;
+// / Generate a table showing correlation for all symbols
+// final_report: select 
+//     last_21_cor: (-21#price) cor (-21#exp_med),
+//     full_day_cor: price cor exp_med 
+//     by sym from latest_data;
 
-show "Final Correlation Report for ", string latest_dt;
-show final_report;
+// show "Final Correlation Report for ", string latest_dt;
+// show final_report;
 
-show "--- Pipeline Completed Successfully ---";
+// show "--- Pipeline Completed Successfully ---";
