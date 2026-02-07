@@ -6,10 +6,13 @@ show "--- Initializing Unified Pipeline ---";
 \l utility.q
 
 / Define Paths using strings to handle Windows special characters (桌面)
-dbPathStr: "/Users/zacharydugan/q/simulated_data/db";
-// \l /Users/zacharydugan/q/simulated_data/db
+dbPathStr: "/Users/zacharydugan/q/big_sim_db";
+dbPathStr_am: "/Users/zacharydugan/q/big_sim_db/am";
+dbPathStr_nz: "/Users/zacharydugan/q/big_sim_db/nz";
 
 dbPath: hsym `$dbPathStr;
+dbPath_am: hsym `$dbPathStr_am;
+dbPath_nz: hsym `$dbPathStr_nz;
 
 startDate: 2023.01.02;
 endDate: 2025.01.02;
@@ -17,8 +20,10 @@ allDays: startDate + til 1 + endDate - startDate;
 tradingDays: allDays where (mod[allDays; 7]) < 5; 
 marketMinutes: 390;
 barTimes: 09:30:00 + 00:01 * til marketMinutes; 
-syms: `IBM`AAPL`TSLA; 
-basePrices: 185.0 185.0 250.0; 
+syms: `IBM`AAPL`TSLA`MSFT`AMZN`META`WMT`KO`DIS`NVDA; 
+basePrices: 25. 50. 75. 100. 125. 150. 175. 200. 225. 250.; 
+
+extr:{[t;r] select from t where (`$1#'string sym) within r}
 
 / --- SECTION 2: Step 1 - Simulation Logic ----------------------------------------------------------------
 show "Step 1: Running Price Simulation...";
@@ -37,35 +42,56 @@ construct_table_one_day: {[dt; openP]
 //If dbPath doesn't exist then make it.
 if[()~key dbPath; .[system;("mkdir \"",dbPathStr,"\"");{}]];
 
-openP: basePrices; 
+/ openP: basePrices; 
+openPrice: basePrices; 
 i: 0;
 while[i < count tradingDays;
     dt: tradingDays[i];
-    day_table: construct_table_one_day[dt; openP];
-    prices_table:: select bar_time, sym, price from day_table; 
-    .Q.dpft[dbPath; dt; `sym; `prices_table]; 
-    openP: exec last price by sym from prices_table; 
+    day_table: construct_table_one_day[dt; openPrice];
+    day_table_2: select bar_time, sym, price from day_table; 
+    prices_table_total:: select bar_time, sym, price from day_table; 
+    / .Q.dpft[dbPath; dt; `sym; `prices_table]; 
+    / extr[prices_table;`a`m] replaces prices_table
+    / dbPath_am replaces dbPath
+    
+    prices_table:: extr[day_table_2;`a`m];
+    .Q.dpft[dbPath_am; dt; `sym; `prices_table];
+    prices_table:: extr[day_table_2;`n`z];
+    .Q.dpft[dbPath_nz; dt; `sym; `prices_table];
+
+    openPrice: exec last price by sym from prices_table_total; 
     if[0 = i mod 50; show "Partition saved: ", string dt];
     i+: 1
  ];
+
+//  show "stopping here"
+// \
 / __________________________________________________________________________________________________________
 / --- SECTION 3: Step 2 - Returns Calculation --- Calculates and saves ret_table
 show "Step 2: Calculating Returns...";
-\l /Users/zacharydugan/q/simulated_data/db
+\l /Users/zacharydugan/q/big_sim_db
 p: `date`sym`bar_time xasc select from prices_table where date within (startDate; endDate); 
 returns_table: update return: (price - prev price) % prev price by date, sym from p;
 
 { [dt]
-    ret_table:: select date, bar_time, sym, return from returns_table where date = dt;
-    .Q.dpft[dbPath; dt; `sym; `ret_table]
+    / ret_table:: select date, bar_time, sym, return from returns_table where date = dt;
+    / .Q.dpft[dbPath; dt; `sym; `ret_table]
+    ret_table_total: select date, bar_time, sym, return from returns_table where date = dt;
+    ret_table:: extr[ret_table_total;`a`m];
+    .Q.dpft[dbPath_am; dt; `sym; `ret_table];
+    ret_table:: extr[ret_table_total;`n`z];
+    .Q.dpft[dbPath_nz; dt; `sym; `ret_table];
+    
  } each tradingDays;
+show "stopping here"
+\
 / __________________________________________________________________________________________________________
 
 
 / __________________________________________________________________________________________________________
 / --- SECTION 4: Step 3 - Moving Medians --- Creates and saves moving_median_table
 show "Step 3: Calculating Moving Medians...";
-\l /Users/zacharydugan/q/simulated_data/db
+\l /Users/zacharydugan/q/big_sim_db
 
 / Load prices and calculate moving median across time (window 7)
 / We group by sym and bar_time to look at the median of that specific time-slice across dates
@@ -83,7 +109,7 @@ median_data: update moving_median: return_moving_window_op[7; med; return] by sy
 / __________________________________________________________________________________________________________
 / --- SECTION 5: Step 4 - Exponential Medians (EMA) --- Saves to exp_median_table
 show "Step 4: Applying EMA to Medians...";
-\l /Users/zacharydugan/q/simulated_data/db
+\l /Users/zacharydugan/q/big_sim_db
 
 / Use the moving_median_table as input for the EMA
 // ema_data: select from moving_median_table;
@@ -136,7 +162,7 @@ show -20#(ema_data)
 / __________________________________________________________________________________________________________
  / --- SECTION 5: Step 4 - Exponential Medians (Nudge Logic) ---
 show "Step 5: Applying Exponential Nudge Median...";
-\l /Users/zacharydugan/q/simulated_data/db
+\l /Users/zacharydugan/q/big_sim_db
 
 / Define your custom nudge parameters
 alpha: 0.05;
@@ -176,7 +202,7 @@ show -21#median_results;
 / __________________________________________________________________________________________________________
 / Calculate and show correlation
 
-\l /Users/zacharydugan/q/simulated_data/db
+\l /Users/zacharydugan/q/big_sim_db
 
 / last_21: -21#median_results;
 / result: exec price cor exp_med from last_21;
