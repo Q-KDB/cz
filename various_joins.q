@@ -66,3 +66,24 @@ show ejt
 ljt: sales lj targets;
 show ljt
 / ___________________________________
+
+
+/ Table A: The Reference (Analysis)
+sales:([] 
+    time:10:00 10:05 10:10; 
+    sym:`AAPL`AAPL`MSFT; 
+    price:150.1 150.2 400.5; 
+    qty:100 200 150);
+
+/ Table B: The Complement (Audit) - Note: different column names/types
+sale2:([] 
+    t:10:00 10:05 10:15;               / Missing 10:10, adds 10:15
+    s:("AAPL";"AAPL";"GOOG");          / Strings instead of Symbols
+    price:150.1 150.2 400.5; 
+    qty:100 200 150);
+
+sale3:([] 
+    t:10:00 10:05 10:15;               / Missing 10:10, adds 10:15
+    s:("AAPL";"AAPL";"GOOG");          / Strings instead of Symbols
+    price:150.1 150.2 400.5; 
+    qty:100 200 150);
