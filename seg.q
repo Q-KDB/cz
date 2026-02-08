@@ -22,8 +22,15 @@ allDays: startDate + til 1 + endDate - startDate;
 tradingDays: allDays where (mod[allDays; 7]) < 5; 
 marketMinutes: 390;
 barTimes: 09:30:00 + 00:01 * til marketMinutes; 
-syms: `IBM`AAPL`TSLA`MSFT`AMZN`META`WMT`KO`DIS`NVDA; 
+/ syms: `IBM`AAPL`TSLA`MSFT`AMZN`META`WMT`KO`DIS`NVDA; 
+syms: `ibm`appl`tsla`msft`amzn`meta`wmt`ko`dis`nvda;
 basePrices: 25. 50. 75. 100. 125. 150. 175. 200. 225. 250.; 
+
+/ openP: basePrices; 
+openP: syms!basePrices; 
+show openP;
+// show "exiting here"
+// \
 
 extr:{[t;r] select from t where (`$1#'string sym) within r}
 
@@ -31,25 +38,60 @@ extr:{[t;r] select from t where (`$1#'string sym) within r}
 / --- SECTION 2: Step 1 - Simulation Logic ----------------------------------------------------------------
 show "Step 1: Running Price Simulation...";
 simulate_day_one_sym: {[dt; sym; startP]
+    / if[sym=`wmt; show "wmt OpenP ", string startP];
+    show sym;
+    show startP;
     n: marketMinutes;
     returns: 0.001 * sums (n?1.0) - 0.5; 
     prices: startP * 1 + returns;
     ([] date: dt; bar_time: barTimes; sym: n#sym; price: prices)
  };
 
+show openP;
+
+
 construct_table_one_day: {[dt; openP]
-    t: raze { [dt; sym; op] simulate_day_one_sym[dt; sym; op] }[dt] ' [syms; openP]; 
-    `date`bar_time xasc t
+    show dt;
+    show type openP;
+    show openP;
+    / show each flip (syms; openP[syms]);
+    / open_prices:openP[syms]
+    // t: raze { [dt; sym; op] simulate_day_one_sym[dt; sym; op] }[dt] ' [syms; openP]; 
+    // t: raze { [dt; op; sym] simulate_day_one_sym[dt; sym; op[sym]] }[dt;openP] 'syms; 
+
+    / result: raze { ([] date:x; sym:key y; price:value y) }'[key openprice; value openprice]
+
+    // result: raze { ([] date:10#x; sym:key y; price:value y) }'[date; openPrice]
+    // t: ,/ { [dt; sym; startP] simulate_day_one_sym[dt; sym; startP] }[dt] ' [syms; openP[syms]]; 
+    // `date`bar_time xasc t
+
+    show "beginning while";
+    i: 0;
+    while[i < count syms; 
+        / sf[x; y; z[i]]; 
+        show syms[i];
+        show openP[syms[i]];
+        tnew: simulate_day_one_sym[dt; syms[i]; openP[syms[i]]]
+        i: i + 1];
+    show "tnew";
+    show tnew;
+    show "stopping here"
+    \
+
  };
 
 //If dbPath doesn't exist then make it.
 if[()~key dbPath; .[system;("mkdir \"",dbPathStr,"\"");{}]];
 
-/ openP: basePrices; 
-openPrice: basePrices; 
+show openP;
+
 i: 0;
-while[i < count tradingDays;
+/ while[i < count tradingDays;
+while[i < 447;
     dt: tradingDays[i];
+    show "beginning"
+    show dt;
+    show openPrice;
     day_table: construct_table_one_day[dt; openPrice];
     day_table_2: select bar_time, sym, price from day_table; 
     prices_table_total:: select bar_time, sym, price from day_table; 
@@ -64,14 +106,28 @@ while[i < count tradingDays;
 
     // You run it once per partition/date, right before you set that date’s table.
     type day_table_2;
+    show "day_table_2 am";
+    show dt;
+    show -10#day_table_2;
     t1:.Q.en[`:/Users/zacharydugan/q/big_sim_db/db; day_table_2];
+    show "t1 am";
+    show dt;
+    show -10#t1;
     prices_table:: extr[t1;`a`m];
     (hsym `$raze (dbPathStr_am; "/"; string dt; "/prices_table/")) set prices_table;
     prices_table:: extr[t1;`n`z];
+    show "prices nz";
+    show dt;
+    show -10#prices_table;
     (hsym `$raze (dbPathStr_nz; "/"; string dt; "/prices_table/")) set prices_table;
 
     openPrice: exec last price by sym from prices_table_total; 
+    if[dt=2024.09.16; show "Problem date,  openPrices "];
+    if[dt=2024.09.16; show openPrice];
     if[0 = i mod 50; show "Partition saved: ", string dt];
+    if[dt=2024.09.17; show "Problem date, exiting "];
+    if[dt=2024.09.17; \];
+    
     i+: 1
  ];
 
@@ -85,19 +141,28 @@ show "Step 2: Calculating Returns...";
 / p: `date`sym`bar_time xasc select from prices_table where date within (startDate; endDate); 
 p: `date`sym`bar_time xasc select from prices_table; 
 returns_table: update return: (price - prev price) % prev price by date, sym from p;
- show "stopping here"
-\
+//  show "stopping here"
+// \
 { [dt]
     / ret_table:: select date, bar_time, sym, return from returns_table where date = dt;
     / .Q.dpft[dbPath; dt; `sym; `ret_table]
     ret_table_total: select date, bar_time, sym, return from returns_table where date = dt;
-    ret_table:: extr[ret_table_total;`a`m];
-    .Q.dpft[dbPath_am; dt; `sym; `ret_table];
-    ret_table:: extr[ret_table_total;`n`z];
-    .Q.dpft[dbPath_nz; dt; `sym; `ret_table];
+
+    t1:.Q.en[`:/Users/zacharydugan/q/big_sim_db/db; ret_table_total];
+    ret_table:: extr[t1;`a`m];
+    (hsym `$raze (dbPathStr_am; "/"; string dt; "/ret_table/")) set ret_table;
+    ret_table:: extr[t1;`n`z];
+    (hsym `$raze (dbPathStr_nz; "/"; string dt; "/ret_table/")) set ret_table;
+
+    // ret_table:: extr[ret_table_total;`a`m];
+    // .Q.dpft[dbPath_am; dt; `sym; `ret_table];
+    // ret_table:: extr[ret_table_total;`n`z];
+    // .Q.dpft[dbPath_nz; dt; `sym; `ret_table];
     
  } each tradingDays;
-show "stopping here"
+
+\cd ../../cz/cz
+show "stopping here after return calculation"
 \
 / __________________________________________________________________________________________________________
 

@@ -34,3 +34,5 @@ q)y
 7
 q)b
 4141.2
+
+Q is case sensitive
