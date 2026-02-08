@@ -9,6 +9,8 @@ show "--- Initializing Unified Pipeline ---";
 dbPathStr: "/Users/zacharydugan/q/big_sim_db";
 dbPathStr_am: "/Users/zacharydugan/q/big_sim_db/am";
 dbPathStr_nz: "/Users/zacharydugan/q/big_sim_db/nz";
+`:/Users/zacharydugan/q/big_sim_db/db/par.txt 0: ("/Users/zacharydugan/q/big_sim_db/am"; "/Users/zacharydugan/q/big_sim_db/nz")
+
 
 dbPath: hsym `$dbPathStr;
 dbPath_am: hsym `$dbPathStr_am;
@@ -24,6 +26,7 @@ syms: `IBM`AAPL`TSLA`MSFT`AMZN`META`WMT`KO`DIS`NVDA;
 basePrices: 25. 50. 75. 100. 125. 150. 175. 200. 225. 250.; 
 
 extr:{[t;r] select from t where (`$1#'string sym) within r}
+
 
 / --- SECTION 2: Step 1 - Simulation Logic ----------------------------------------------------------------
 show "Step 1: Running Price Simulation...";
@@ -50,29 +53,40 @@ while[i < count tradingDays;
     day_table: construct_table_one_day[dt; openPrice];
     day_table_2: select bar_time, sym, price from day_table; 
     prices_table_total:: select bar_time, sym, price from day_table; 
+    
     / .Q.dpft[dbPath; dt; `sym; `prices_table]; 
     / extr[prices_table;`a`m] replaces prices_table
-    / dbPath_am replaces dbPath
-    
-    prices_table:: extr[day_table_2;`a`m];
-    .Q.dpft[dbPath_am; dt; `sym; `prices_table];
-    prices_table:: extr[day_table_2;`n`z];
-    .Q.dpft[dbPath_nz; dt; `sym; `prices_table];
+    / dbPath_am replaces dbPath    
+    / prices_table:: extr[day_table_2;`a`m];
+    / .Q.dpft[dbPath_am; dt; `sym; `prices_table];
+    / prices_table:: extr[day_table_2;`n`z];
+    / .Q.dpft[dbPath_nz; dt; `sym; `prices_table];
+
+    // You run it once per partition/date, right before you set that date’s table.
+    type day_table_2;
+    t1:.Q.en[`:/Users/zacharydugan/q/big_sim_db/db; day_table_2];
+    prices_table:: extr[t1;`a`m];
+    (hsym `$raze (dbPathStr_am; "/"; string dt; "/prices_table/")) set prices_table;
+    prices_table:: extr[t1;`n`z];
+    (hsym `$raze (dbPathStr_nz; "/"; string dt; "/prices_table/")) set prices_table;
 
     openPrice: exec last price by sym from prices_table_total; 
     if[0 = i mod 50; show "Partition saved: ", string dt];
     i+: 1
  ];
 
-//  show "stopping here"
-// \
+prices_table:: prices_table_total
+
 / __________________________________________________________________________________________________________
 / --- SECTION 3: Step 2 - Returns Calculation --- Calculates and saves ret_table
 show "Step 2: Calculating Returns...";
-\l /Users/zacharydugan/q/big_sim_db
-p: `date`sym`bar_time xasc select from prices_table where date within (startDate; endDate); 
-returns_table: update return: (price - prev price) % prev price by date, sym from p;
+\l /Users/zacharydugan/q/big_sim_db/db
 
+/ p: `date`sym`bar_time xasc select from prices_table where date within (startDate; endDate); 
+p: `date`sym`bar_time xasc select from prices_table; 
+returns_table: update return: (price - prev price) % prev price by date, sym from p;
+ show "stopping here"
+\
 { [dt]
     / ret_table:: select date, bar_time, sym, return from returns_table where date = dt;
     / .Q.dpft[dbPath; dt; `sym; `ret_table]
