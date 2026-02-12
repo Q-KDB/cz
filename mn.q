@@ -1,6 +1,8 @@
 \l /Users/zacharydugan/q/cz/cz/big_sim_db/db
 \l /Users/zacharydugan/q/cur_files/quantile.q
 \l /Users/zacharydugan/q/cur_files/winsorize.q
+\l /Users/zacharydugan/q/cur_files/winsorize.q
+\l /Users/zacharydugan/q/cz/cz/get_aligned.q
 \cd /Users/zacharydugan/q/cz/cz/
 
 // read into memory 
@@ -86,11 +88,17 @@ show (count x_mat_reg; count first x_mat_reg);
 pt: update y_ret: 15 msum return by sym from pt;
 // BUT we are going to want to target the y_ret 15 minutes into the future, not the present par.  
 
-return_target_y_ret:{[bt]
-  exec y_ret from pt where bar_time = bt + 00:15:00
+return_target_y_ret:{[dt;bt]
+  exec y_ret from pt where (date=dt) and (bar_time = bt + 00:15:00)
   };
 
-test_y_ret: return_target_y_ret[10:00:00]
+y_ret_array: return_target_y_ret[2023.01.02;10:00:00]
+
+(x_out;y_out): get_aligned_data[dt;bt;00:15:00;pt];
+y_out: enlist y_out;
+coeffs: y_out lsq x_out;
+show "coeffs";
+show coeffs;
 
 \
 
