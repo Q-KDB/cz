@@ -44,29 +44,67 @@ pt: update pred_2: 45 msum return by sym from pt;
 pt: update pred_3: 45 msum return by sym from pt;
 
 
-return_x_matrix:{ [dt;bt]
-    r1: exec pred_1 from pt where date=dt, bar_time=bt;
-    r2: exec pred_2 from pt where date=dt, bar_time=bt;
-    r3: exec pred_3 from pt where date=dt, bar_time=bt;
-    :(r1; r2; r3) };
+//Now we need to package these into an x_matrix.  We should ignore the first window respectively for each
+// So now I have 3 predictors for 10 stocks.  The x_matrix will be 3x10  predictors * stocks
+// At a given bar, the X matrix will 3x10
 
 //Check
 dt:2023.01.02;
 tim:09:35:00;
-x_mat: return_x_matrix:[dt;tim];
+
+/ Build 3xN matrix at one date/time (N = number of syms in that slice)
+return_x_matrix:{[dt;bt;pt]
+  s: select pred_1, pred_2, pred_3 by sym from pt where date=dt, bar_time=bt;
+  if[0=count s; '"no rows for date/bar_time"];
+  / The sym order of these will be important.  
+  r1: exec pred_1 from s;
+  r2: exec pred_2 from s;
+  r3: exec pred_3 from s;
+  :raze enlist each (r1; r2; r3)
+  };
+
+/ smoke test
+dt: first exec date from pt;
+bt: first exec bar_time from pt where date=dt;
+x_mat: return_x_matrix[dt;bt;pt];
+show "type x_mat";
+show type x_mat;
+show "type first x_mat";
+show type first x_mat;
+show "shape as (rows;cols)";
+show (count x_mat; count first x_mat);
+
+/ regression shape (N x 3)
+x_mat_reg: flip x_mat;
+show "type x_mat_reg";
+show type x_mat_reg;
+show "shape reg as (rows;cols)";
+show (count x_mat_reg; count first x_mat_reg);
+
+// Now we need to gather the y returns, ie the returns we are trying to target.__________________  
+// This is going to be a 1 by 10 array
+pt: update y_ret: 15 msum return by sym from pt;
+// BUT we are going to want to target the y_ret 15 minutes into the future, not the present par.  
+
+return_target_y_ret:{[bt]
+  exec y_ret from pt where bar_time = bt + 00:15:00
+  };
+
+test_y_ret: return_target_y_ret[10:00:00]
 
 \
 
-return_x_matrix:{[dt;bt]
-    x_mat: (exec pred_1 from pt where date=dt, bar_time=bt; 
-            exec pred_2 from pt where date=dt, bar_time=bt; 
-            exec pred_3 from pt where date=dt, bar_time=bt);
-    x_mat
-};
+//________________________________________________________________________________________________
 
-//Now we need to package these into an x_matrix.  We should ignore the first window respectively for each
-// So now I have 3 predictors for 10 stocks.  The x_matrix will be 3x10  predictors * stocks
-// At a given bar, the X matrix will 3x10
+// ORDER IS IMPORTANT.  
+
+X IS 3x10 ; 3 PREDICTORS FOR 10 STOCKS
+Y IS 1x10 ;                  10 STOCKS
+WE WANT THE ORDER OF ALL THE STOCKS TO BE THE SAME    
+COEFS:  [3]   THESE WILL YIELD 3 COEFFICIENTS
+PREDICTIONS: X_MAT times the COEFS will be [1,10], same as the Y
+
+
 
 
 / -------------------------------------------------------------------------
@@ -100,6 +138,30 @@ x_matrix_bar: {[i]
 // __________________________________________________________________________________________
 // Scrap
 \
+
+x_mat: (exec pred_1 from pt where date=dt, bar_time=bt; 
+        exec pred_2 from pt where date=dt, bar_time=bt; 
+        exec pred_3 from pt where date=dt, bar_time=bt);
+
+
+
+x_mat: return_x_matrix:[dt;tim;pt];
+
+return_x_matrix:{ [dt;bt;pt]
+    r1: exec pred_1 from pt where date=dt, bar_time=bt;
+    r2: exec pred_2 from pt where date=dt, bar_time=bt;
+    r3: exec pred_3 from pt where date=dt, bar_time=bt;
+    :(r1; r2; r3) };
+
+
+return_x_matrix:{[dt;bt]
+    x_mat: (exec pred_1 from pt where date=dt, bar_time=bt; 
+            exec pred_2 from pt where date=dt, bar_time=bt; 
+            exec pred_3 from pt where date=dt, bar_time=bt);
+    x_mat
+};
+
+
 x_matrix: (x1;x2;x3;x4;x5;x6;x7) 
 coeffs: y lsq x_matrix
 
